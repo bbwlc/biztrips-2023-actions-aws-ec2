@@ -358,6 +358,24 @@ Baut das Docker-Image gemäß dem `Dockerfile` im Repository-Root und pusht es i
 | `VITE_API_BASE_URL` | Variable | Repository | `build`, `docker` | landet ohnehin sichtbar im Frontend-Bundle — kein Geheimnis |
 | `VITE_IMGS` | Variable | Repository | `build`, `docker` | s. o., mit Default `'items'` über `||`-Fallback |
 
+## Exkurs: Ubuntu vs. Amazon Linux (welche AMI für `EC2_HOST`?)
+
+**Wichtig, um keine zwei „Ubuntus“ zu verwechseln:** `runs-on: ubuntu-latest` (in jedem Job dieser Pipeline) legt fest, auf welchem Betriebssystem der **GitHub-Actions-Runner** läuft — also die von GitHub bereitgestellte, kurzlebige VM, auf der `npm ci`, `npm run build`, `docker build` etc. ausgeführt werden. Das ist fix Ubuntu und hat **nichts** mit der EC2-Ziel-Instanz zu tun, auf die am Ende deployt wird. Alle in dieser Pipeline verwendeten Actions (`actions/checkout`, `actions/setup-node`, `docker/*`) laufen also auf einem Ubuntu-Runner — unabhängig davon, welches Betriebssystem auf der EC2-Instanz installiert ist, die per SSH als Deploy-Ziel angesprochen wird.
+
+Die EC2-**Ziel**-Instanz (der Server, auf dem am Ende `nginx` läuft und mit dem der `deploy`-Job per SSH spricht) ist davon komplett unabhängig — hier wählt ihr selbst die AMI, und genau das entscheidet über `EC2_USER`:
+
+| | Ubuntu-AMI | Amazon-Linux-AMI (2023) |
+| --- | --- | --- |
+| Standard-SSH-User (`EC2_USER`) | `ubuntu` | `ec2-user` |
+| Paketmanager | `apt` / `apt-get` (`.deb`) | `dnf` (`.rpm`) |
+| Basis | Debian | Fedora/RPM-Linie, AWS-optimiert |
+| `sudo` ohne Passwort | ✅ (Standard-AMI) | ✅ (Standard-AMI) |
+
+Für die Pipeline selbst (SSH, `rsync`, `systemctl reload nginx`) macht das keinen Unterschied — diese Befehle sind auf beiden Distributionen identisch. Relevant ist die Wahl nur für:
+
+- den Wert von `EC2_USER` (Secret in Schritt 5 der Übung),
+- den Paketmanager-Befehl bei der **einmaligen** manuellen Einrichtung der Instanz (`EX-01`, Schritt 3): dort steht `sudo apt install -y nginx rsync` — auf Amazon Linux müsste das `sudo dnf install -y nginx rsync` heißen.
+
 ## Zentrale Design-Entscheidungen dieser Pipeline
 
 1. **Vier separate Jobs statt einem großen Job** — jeder Job läuft auf einer eigenen, frischen VM. Das erzwingt saubere Übergaben ausschließlich über Artefakte (`dist`) und macht die Pipeline lesbarer sowie in der GitHub-UI übersichtlicher nachvollziehbar (grüne/rote Kästchen pro Verantwortlichkeit).
