@@ -128,3 +128,54 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/biztrips:prod01
             ${{ secrets.DOCKERHUB_USERNAME }}/biztrips:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/biztrips:${{ github.sha }}
+
+  deploy-ecs:
+    name: Image nach ECR pushen und ECS-Service aktualisieren
+    runs-on: ubuntu-latest
+    needs: docker
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    permissions:
+      id-token: write   # notwendig für OIDC
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AWS-Credentials via OIDC beziehen
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: eu-central-1
+
+      - name: Bei ECR anmelden
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Image bauen und nach ECR pushen
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          ECR_REPOSITORY: biztrips
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            --build-arg VITE_API_BASE_URL="${{ vars.VITE_API_BASE_URL }}" \
+            --build-arg VITE_IMGS="${{ vars.VITE_IMGS || 'items' }}" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" .
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+
+      - name: Task-Definition mit neuem Image aktualisieren
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: biztrips
+          image: ${{ steps.ecr-login.outputs.registry }}/biztrips:${{ github.sha }}
+
+      - name: ECS-Service deployen
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-def.outputs.task-definition }}
+          cluster: biztrips-cluster
+          service: biztrips-service
+          wait-for-service-stability: true
