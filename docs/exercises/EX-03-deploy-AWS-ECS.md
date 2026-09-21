@@ -103,6 +103,23 @@ empfohlenes Produktions-Pattern: In einem regulären AWS-Account bleibt der
 OIDC-Ansatz aus Schritt 2 der richtige Weg, weil er ganz ohne gespeicherte
 Zugangsdaten auskommt und nicht manuell erneuert werden muss.
 
+**Auswirkung auf die `executionRoleArn` in Schritt 5:** Die `LabRole`-
+Einschränkung gilt nicht nur für die per OIDC angenommene Rolle aus Schritt 2,
+sondern für **jede** eigene IAM-Rolle — auch für die in Schritt 5 verwendete
+`ecsTaskExecutionRole`. `iam:CreateRole` schlägt im Learner Lab ebenso fehl,
+wenn versucht wird, diese Rolle separat anzulegen. Im Learner Lab in der
+`task-definition.json` daher direkt die vorgegebene `LabRole` referenzieren:
+
+```json
+"executionRoleArn": "arn:aws:iam::<account-id>:role/LabRole",
+```
+
+Die AWS-Region der Learner-Lab-Sitzung ist ebenfalls fix `us-east-1` (siehe
+Region im Fallback-Snippet oben) — das betrifft dann auch die
+`awslogs-region` sowie die ECR-Image-URI in der `task-definition.json` und
+den Cluster/Service aus Schritt 3/6, die entsprechend in `us-east-1` statt
+`eu-central-1` angelegt werden müssen.
+
 ---
 
 ## Schritt 3: ECS-Cluster anlegen
@@ -156,6 +173,8 @@ Ein Fargate-Cluster braucht keine eigenen EC2-Instanzen — der Cluster ist zun�
 ```
 
 `ecsTaskExecutionRole` ist eine von AWS vorgegebene Standardrolle (`AmazonECSTaskExecutionRolePolicy`), die dem Container erlaubt, das Image von ECR zu ziehen und Logs nach CloudWatch zu schreiben — analog zur Rolle, die in EX-01 der SSH-User implizit über `sudo`-Rechte auf der Instanz hatte.
+
+> **AWS Academy Learner Lab:** `iam:CreateRole` ist dort gesperrt, eine eigene `ecsTaskExecutionRole` lässt sich also nicht anlegen — stattdessen `executionRoleArn` auf die vorgegebene `LabRole` setzen. Details und weitere Learner-Lab-Anpassungen (Region `us-east-1` statt `eu-central-1`) siehe Exkurs nach Schritt 2.
 
 ---
 
@@ -290,7 +309,7 @@ Typisch für **AWS Academy Learner Lab**-Accounts — dort ist das Anlegen eigen
 Meist Security-Group-Problem: Die Security Group der Tasks muss eingehenden Traffic von der Security Group des ALB auf Port 80 erlauben (Schritt 4) — nicht umgekehrt.
 
 **`CannotPullContainerError` beim Task-Start**
-Die `executionRoleArn` fehlt oder hat nicht die Policy `AmazonECSTaskExecutionRolePolicy` — ohne diese Rolle darf der Task-Agent das Image nicht von ECR ziehen.
+Die `executionRoleArn` fehlt oder hat nicht die Policy `AmazonECSTaskExecutionRolePolicy` — ohne diese Rolle darf der Task-Agent das Image nicht von ECR ziehen. Im **AWS Academy Learner Lab** genügt es nicht, eine eigene `ecsTaskExecutionRole` anzulegen (schlägt mit `AccessDenied` fehl) — dort `executionRoleArn` auf die vorgegebene `LabRole` setzen (siehe Exkurs nach Schritt 2).
 
 **Service bleibt bei "PENDING", `desired-count` wird nie erreicht**
 Häufig fehlende `assignPublicIp=ENABLED` bei Tasks in einem öffentlichen Subnet ohne NAT-Gateway — ohne Public IP kann der Task-Agent weder das Image ziehen noch Logs senden.
