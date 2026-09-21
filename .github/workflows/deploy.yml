@@ -134,17 +134,21 @@ jobs:
     runs-on: ubuntu-latest
     needs: docker
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    permissions:
-      id-token: write   # notwendig für OIDC
-      contents: read
     steps:
       - uses: actions/checkout@v4
 
-      - name: AWS-Credentials via OIDC beziehen
+      # AWS-Academy-Learner-Lab-Fallback: Lab-Accounts erlauben kein iam:CreateRole /
+      # iam:CreateOpenIDConnectProvider, daher hier die temporären Learner-Lab-
+      # Zugangsdaten (AWS Details → AWS CLI im Lab) statt einer per OIDC übernommenen
+      # Rolle. Diese Zugangsdaten laufen mit der Lab-Sitzung ab und müssen bei jeder
+      # neuen Sitzung als GitHub Secrets aktualisiert werden.
+      - name: AWS-Credentials aus Learner-Lab-Session beziehen
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: eu-central-1
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
 
       - name: Bei ECR anmelden
         id: ecr-login
